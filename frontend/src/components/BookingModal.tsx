@@ -31,7 +31,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
   const [paymentUPI, setPaymentUPI] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingQR, setLoadingQR] = useState(true);
-  
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -59,8 +59,8 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } 
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -91,26 +91,26 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
     if (videoRef.current && canvasRef.current) {
       const canvas = canvasRef.current;
       const video = videoRef.current;
-      
+
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      
+
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(video, 0, 0);
         const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
-        
+
         try {
           setUploading(true);
           toast.loading('Uploading to cloud...');
-          
+
           // Upload to Cloudinary immediately
           const cloudinaryUrl = await uploadToCloudinary(imageDataUrl);
-          
+
           setPaymentScreenshot(cloudinaryUrl);
           stopCamera();
           setShowCameraModal(false);
-          
+
           toast.dismiss();
           toast.success('Photo captured and uploaded successfully!');
         } catch (error) {
@@ -143,11 +143,11 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
       try {
         setUploading(true);
         toast.loading('Uploading to cloud...');
-        
+
         const base64Image = reader.result as string;
         // Upload to Cloudinary immediately
         const cloudinaryUrl = await uploadToCloudinary(base64Image);
-        
+
         setPaymentScreenshot(cloudinaryUrl);
         toast.dismiss();
         toast.success('Image uploaded successfully!');
@@ -166,7 +166,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
     // Convert base64 to blob
     const response = await fetch(base64Image);
     const blob = await response.blob();
-    
+
     // Create form data
     const formData = new FormData();
     formData.append('file', blob, 'payment-screenshot.jpg');
@@ -227,10 +227,71 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
     }
   };
 
+  //
+  const handleRazorpayPayment = async () => {
+    try {
+      // razor pay needs the final payable amount totalamountalready includes quantity logic, 
+      const amount = totalAmount;
+
+      // 1. Create Razorpay order 
+      const res = await fetch(
+        `http://localhost:8000/payments/create-order?amount=${amount}`,
+        { method: "POST" }
+      );
+
+      if (!res.ok) {
+        throw new Error("Failed to create Razorpay order");
+      }
+      //data contains order_id, amount 
+      const data = await res.json();
+
+      // 2. Razorpay checkout options
+      const options = {
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+        amount: data.amount,
+        currency: "INR",
+        name: "Student Prep Hub",
+        description: `${listing.name} booking`,
+        order_id: data.order_id,
+
+        handler: async function (response: any) {
+          // 3. Verify payment
+          await fetch("http://localhost:8000/payments/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(response),
+          });
+
+          // 4. Create booking AFTER payment success
+          await BookingsService.createBooking({
+            listing_id: listing.id,
+            quantity,
+            payment_id: response.razorpay_payment_id,
+            payment_method: "razorpay",
+          });
+
+          toast.success("Payment successful & booking confirmed 🎉");
+          onSuccess();
+          onClose();
+        },
+
+        theme: { color: "#ec4899" },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+
+    } catch (error) {
+      console.error(error);
+      toast.error("Razorpay payment failed");
+    }
+  };
+
+
   const totalAmount = listing.price * quantity;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
@@ -367,9 +428,9 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
                       <QrCode className="w-5 h-5" />
                       Scan QR Code to Pay
                     </h3>
-                    <img 
-                      src={paymentQR} 
-                      alt="Payment QR Code" 
+                    <img
+                      src={paymentQR}
+                      alt="Payment QR Code"
                       className="w-48 h-48 sm:w-56 sm:h-56 md:w-64 md:h-64 mx-auto object-contain border-2 border-border rounded-lg bg-surface"
                     />
                     {paymentUPI && (
@@ -388,6 +449,17 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
                   </div>
                 )}
 
+                {/* razorpay button  */}
+                <div className="text-center text-foreground-muted">— OR —</div>
+
+                <button
+                  onClick={handleRazorpayPayment}
+                  className="w-full py-3 bg-pink-600 text-white rounded-lg font-semibold hover:bg-pink-700 transition-colors"
+                >
+                  Pay ₹{totalAmount.toLocaleString("en-IN")} with Razorpay
+                </button>
+
+
                 {/* Payment Method Selection */}
                 <div>
                   <label className="block text-sm font-medium text-foreground-default mb-3">
@@ -399,11 +471,10 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
                         setPaymentMethod('screenshot');
                         // Don't auto-start camera, user will click to open modal
                       }}
-                      className={`py-3 px-4 rounded-lg border-2 font-medium transition-colors text-sm ${
-                        paymentMethod === 'screenshot'
+                      className={`py-3 px-4 rounded-lg border-2 font-medium transition-colors text-sm ${paymentMethod === 'screenshot'
                           ? 'border-primary bg-primary/10 text-primary'
                           : 'border-border bg-surface text-foreground-muted hover:border-primary/50'
-                      }`}
+                        }`}
                     >
                       <Camera className="w-5 h-5 mx-auto mb-1" />
                       Screenshot
@@ -413,11 +484,10 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
                         setPaymentMethod('transaction_id');
                         stopCamera();
                       }}
-                      className={`py-3 px-4 rounded-lg border-2 font-medium transition-colors text-sm ${
-                        paymentMethod === 'transaction_id'
+                      className={`py-3 px-4 rounded-lg border-2 font-medium transition-colors text-sm ${paymentMethod === 'transaction_id'
                           ? 'border-primary bg-primary/10 text-primary'
                           : 'border-border bg-surface text-foreground-muted hover:border-primary/50'
-                      }`}
+                        }`}
                     >
                       <Hash className="w-5 h-5 mx-auto mb-1" />
                       Transaction ID
@@ -430,9 +500,9 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
                       {paymentScreenshot ? (
                         <div className="space-y-3">
                           <div className="border-2 border-green-500 rounded-lg overflow-hidden bg-surface">
-                            <img 
-                              src={paymentScreenshot} 
-                              alt="Payment screenshot" 
+                            <img
+                              src={paymentScreenshot}
+                              alt="Payment screenshot"
                               className="w-full h-80 object-contain bg-surface"
                             />
                           </div>
@@ -569,7 +639,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
 
       {/* Camera Capture Modal */}
       {showCameraModal && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
           onClick={() => {
             setShowCameraModal(false);
@@ -608,7 +678,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, onSuccess
                     className="w-full aspect-video object-cover"
                   />
                   <canvas ref={canvasRef} className="hidden" />
-                  
+
                   {/* Live Indicator */}
                   <div className="absolute top-4 left-4 bg-red-500 text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-2 animate-pulse shadow-lg">
                     <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>

@@ -5,6 +5,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config.routers import RouterManager
 
+from apps.payments.routes import router as payment_router
+from dotenv import load_dotenv
+load_dotenv()
+
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("fastapi_app")
 
@@ -13,6 +19,8 @@ app = FastAPI(
     version="0.1.0",
     redirect_slashes=False,   #  VERY IMPORTANT (prevents 307)
 )
+
+app.include_router(payment_router)
 
 #  CORS FIX
 app.add_middleware(

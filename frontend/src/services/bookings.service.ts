@@ -5,6 +5,7 @@ export interface BookingCreateRequest {
   listing_id: number;
   quantity: number;
   payment_id?: string;
+  payment_method?: "razorpay" | "upi_manual";
   payment_screenshot?: string;
 }
 
